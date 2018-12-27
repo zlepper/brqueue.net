@@ -1,0 +1,22 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 12.00
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "brqueue", "brqueue\brqueue.csproj", "{F94CE7E8-9B62-4C6C-8D00-0D15B76F2E69}"
+EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "brqueue.test", "brqueue.test\brqueue.test.csproj", "{A739DDA6-DC12-4C05-ABFD-35DDE53D6D6A}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Any CPU = Debug|Any CPU
+		Release|Any CPU = Release|Any CPU
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{F94CE7E8-9B62-4C6C-8D00-0D15B76F2E69}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{F94CE7E8-9B62-4C6C-8D00-0D15B76F2E69}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{F94CE7E8-9B62-4C6C-8D00-0D15B76F2E69}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{F94CE7E8-9B62-4C6C-8D00-0D15B76F2E69}.Release|Any CPU.Build.0 = Release|Any CPU
+		{A739DDA6-DC12-4C05-ABFD-35DDE53D6D6A}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{A739DDA6-DC12-4C05-ABFD-35DDE53D6D6A}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{A739DDA6-DC12-4C05-ABFD-35DDE53D6D6A}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{A739DDA6-DC12-4C05-ABFD-35DDE53D6D6A}.Release|Any CPU.Build.0 = Release|Any CPU
+	EndGlobalSection
+EndGlobal

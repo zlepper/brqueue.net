@@ -1,0 +1,23 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+    <PropertyGroup>
+        <TargetFramework>netstandard2.0</TargetFramework>
+        <PackageId>brqueue.net</PackageId>
+        <Version>0.1.0</Version>
+        <Title>BRQueue.Net</Title>
+        <Authors>Zlepper</Authors>
+        <Description>Provides a nice wrapper around the BRQueue TCP api</Description>
+        <PackageProjectUrl>https://github.com/zlepper/brqueue</PackageProjectUrl>
+        <IncludeSourceFilesProjectOutputGroup>true</IncludeSourceFilesProjectOutputGroup>
+        <IncludeDebugSymbolsProjectOutputGroup>true</IncludeDebugSymbolsProjectOutputGroup>
+        <RepositoryUrl>https://github.com/zlepper/brqueue</RepositoryUrl>
+        <IncludeBuiltProjectOutputGroup>true</IncludeBuiltProjectOutputGroup>
+        <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
+    </PropertyGroup>
+
+    <ItemGroup>
+      <PackageReference Include="Google.Protobuf" Version="3.6.1" />
+      <PackageReference Include="System.Threading.Channels" Version="4.5.0" />
+    </ItemGroup>
+
+</Project>
