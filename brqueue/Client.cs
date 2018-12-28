@@ -10,34 +10,23 @@ using Google.Protobuf;
 namespace brqueue
 {
     /// <summary>
-    ///     A raw wrapper around the TCP connection to the brqueue server
-    ///     You probably want to add another layer, so you aren't dealing with raw byte arrays
-    ///     This client is safe to concurrent usage
+    ///     A raw wrapper around the TCP connection to the brqueue server.
+    ///     You probably want to add another layer, so you aren't dealing with raw byte arrays.
+    ///     This client is safe to concurrent usage.
     /// </summary>
     public class Client : IDisposable
     {
         /// <summary>
         ///     A set of callbacks to be invoked whenever responses are available
         /// </summary>
-        private readonly IDictionary<int, ChannelWriter<ResponseWrapper>> _callbacks =
-            new ConcurrentDictionary<int, ChannelWriter<ResponseWrapper>>();
+        private readonly IDictionary<int, Channel<ResponseWrapper>> _callbacks =
+            new ConcurrentDictionary<int, Channel<ResponseWrapper>>();
 
-        private readonly TcpClient _client;
-        private readonly NetworkStream _stream;
+        private readonly ConnectionPool _pool;
 
-        /// <summary>
-        ///     The thread that reads from the underlying socket
-        /// </summary>
-        private readonly Thread _workerThread;
 
         /// <summary>
-        ///     Gets set to true if the worker thread gets in a bad state,
-        ///     in which case the client is no longer valid to use
-        /// </summary>
-        private bool _broken = false;
-
-        /// <summary>
-        ///     Autoincremented id for refering between requests when multiplexing
+        ///     Autoincremented id for referring between requests when multiplexing
         ///     the same client
         /// </summary>
         private int _nextRefId = 1;
@@ -51,54 +40,13 @@ namespace brqueue
         /// <param name="port">The port of the brqueue server</param>
         public Client(string hostname, int port = 6431)
         {
-            _client = new TcpClient(hostname, port);
-
-            _stream = _client.GetStream();
-
-            _workerThread = new Thread(WatchReads) {Name = "brqueue client work thread"};
-            _workerThread.Start();
+            _pool = new ConnectionPool(12, () => new TcpClient(hostname, port));
         }
-
-        /// <summary>
-        ///     Gets set to true if the worker thread gets in a bad state,
-        ///     in which case the client is no longer valid to use
-        /// </summary>
-        public bool Broken => _broken;
 
 
         public void Dispose()
         {
-            _stream?.Dispose();
-            _client?.Dispose();
-            _workerThread.Interrupt();
-        }
-
-        /// <summary>
-        ///     Watches the underlying stream, and reads messages from it, as soon as they appear
-        /// </summary>
-        private async void WatchReads()
-        {
-            try
-            {
-                while (true)
-                {
-                    var bytes = await ReadNextMessage();
-                    var message = ParseResponseMessage(bytes);
-                    var refId = message.RefId;
-                    if (_callbacks.TryGetValue(refId, out var callback))
-                        await callback.WriteAsync(message);
-                    else
-                        throw new Exception(
-                            $"No callback waiting for refId {refId}, which is odd. This is very likely a race condition. ");
-                }
-            }
-            catch (Exception e)
-            {
-                Console.WriteLine("Exception: " + e);
-                _broken = true;
-            }
-
-            // ReSharper disable once FunctionNeverReturns
+            _pool.Dispose();
         }
 
         /// <summary>
@@ -107,10 +55,7 @@ namespace brqueue
         /// <returns></returns>
         private int GetNextRefId()
         {
-            lock (this)
-            {
-                return _nextRefId++;
-            }
+            return Interlocked.Increment(ref _nextRefId);
         }
 
         /// <summary>
@@ -143,21 +88,26 @@ namespace brqueue
         /// <summary>
         ///     Waits for the next message on the underlying socket and returns the raw bytes of it
         /// </summary>
-        private async Task<byte[]> ReadNextMessage()
+        private async Task<ResponseWrapper> ReadNextMessage(Connection connection)
         {
             // Get the size of the next message
             var bytes = new byte[4];
-            var readCount = await _stream.ReadAsync(bytes, 0, bytes.Length);
-            Console.WriteLine($"Read {readCount} bytes");
-            var size = ByteArrayToInt(bytes);
-            Console.WriteLine($"Next message will have size of {size} bytes");
+            await connection.Lock();
+            try
+            {
+                await connection.ReadAsync(bytes);
+                var size = ByteArrayToInt(bytes);
 
-            // Actually read the message
-            bytes = new byte[size];
-            readCount = await _stream.ReadAsync(bytes, 0, bytes.Length);
-            Console.WriteLine($"Read {readCount} bytes, expected {size}.");
+                // Actually read the message
+                bytes = new byte[size];
+                await connection.ReadAsync(bytes);
+            }
+            finally
+            {
+                connection.Unlock();
+            }
 
-            return bytes;
+            return ParseResponseMessage(bytes);
         }
 
         /// <summary>
@@ -166,7 +116,7 @@ namespace brqueue
         /// <param name="message">The message to send</param>
         /// <returns></returns>
         /// <exception cref="Exception">Throws an exception if the byte conversion didn't work as expected</exception>
-        private async Task<int> SendMessage(RequestWrapper message)
+        private async Task<int> SendMessage(RequestWrapper message, Connection connection)
         {
             // Generate a reference id for the message, so we can catch the response 
             // later on
@@ -186,7 +136,7 @@ namespace brqueue
             Buffer.BlockCopy(bytes, 0, all, sizeBytes.Length, bytes.Length);
 
             // Actually send the message
-            await _stream.WriteAsync(all, 0, all.Length);
+            await connection.WriteAsync(all);
 
             return refId;
         }
@@ -220,6 +170,45 @@ namespace brqueue
                 throw new ResponseException($"Invalid response type, expected {type}, got {response.MessageCase}");
         }
 
+        private Channel<ResponseWrapper> CreateResponseChannel()
+        {
+            return Channel.CreateBounded<ResponseWrapper>(new BoundedChannelOptions(1)
+                {FullMode = BoundedChannelFullMode.Wait, SingleReader = true, SingleWriter = true});
+        }
+
+        private async Task<ResponseWrapper> WaitForResponse(int refId, Connection connection)
+        {
+            Channel<ResponseWrapper> res;
+            lock (_callbacks)
+                if (!_callbacks.TryGetValue(refId, out res))
+                {
+                    res = CreateResponseChannel();
+                    _callbacks.Add(refId, res);
+                }
+
+            var message = await ReadNextMessage(connection);
+
+            if (message.RefId == refId)
+            {
+                lock (_callbacks) _callbacks.Remove(refId);
+                return message;
+            }
+
+            Channel<ResponseWrapper> cha;
+            lock (_callbacks)
+                if (!_callbacks.TryGetValue(message.RefId, out cha))
+                {
+                    cha = CreateResponseChannel();
+                    _callbacks.Add(message.RefId, cha);
+                }
+
+            await cha.Writer.WriteAsync(message);
+
+            var actualMessage = await res.Reader.ReadAsync();
+            lock (_callbacks) _callbacks.Remove(refId);
+            return actualMessage;
+        }
+
         /// <summary>
         ///     Utility method for executing a request and awaiting the response
         /// </summary>
@@ -232,15 +221,13 @@ namespace brqueue
         private async Task<ResponseWrapper> ExecuteRequest(RequestWrapper wrapper,
             ResponseWrapper.MessageOneofCase requiredResponseType)
         {
-            // Use a channel to communicate between this thread and the reader threads
-            var channel = Channel.CreateBounded<ResponseWrapper>(new BoundedChannelOptions(1)
-                {FullMode = BoundedChannelFullMode.Wait, SingleReader = true, SingleWriter = true});
-            var refId = await SendMessage(wrapper);
-            _callbacks.Add(refId, channel.Writer);
+            var connection = _pool.Get();
+
+            var refId = await SendMessage(wrapper, connection);
 
             // Wait for a response
-            var responseWrapper = await channel.Reader.ReadAsync();
-            _callbacks.Remove(refId);
+            var responseWrapper = await WaitForResponse(refId, connection);
+            
             // Make sure the response is valid
             HandlePossibleError(responseWrapper);
             RequireResponseType(responseWrapper, requiredResponseType);
@@ -334,7 +321,7 @@ namespace brqueue
         /// <summary>
         ///     Marks a task as finished
         /// </summary>
-        /// <returns>The id of the task</returns>
+        /// <returns>The task to mark completed</returns>
         public async Task<Guid> AcknowledgeAsync(WorkTask task)
         {
             var request = new AcknowledgeRequest {Id = task.Id.ToString()};
@@ -348,10 +335,10 @@ namespace brqueue
         /// <summary>
         ///     Marks a task as finished
         /// </summary>
-        /// <returns>The id of the task</returns>
-        public Guid Acknowledge(WorkTask id)
+        /// <returns>The task to mark completed</returns>
+        public Guid Acknowledge(WorkTask task)
         {
-            return ExecuteAsyncSync(AcknowledgeAsync(id));
+            return ExecuteAsyncSync(AcknowledgeAsync(task));
         }
     }
 }

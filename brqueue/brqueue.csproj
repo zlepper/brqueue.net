@@ -10,7 +10,7 @@
         <PackageProjectUrl>https://github.com/zlepper/brqueue</PackageProjectUrl>
         <IncludeSourceFilesProjectOutputGroup>true</IncludeSourceFilesProjectOutputGroup>
         <IncludeDebugSymbolsProjectOutputGroup>true</IncludeDebugSymbolsProjectOutputGroup>
-        <RepositoryUrl>https://github.com/zlepper/brqueue</RepositoryUrl>
+        <RepositoryUrl>https://github.com/zlepper/brqueue.net</RepositoryUrl>
         <IncludeBuiltProjectOutputGroup>true</IncludeBuiltProjectOutputGroup>
         <GeneratePackageOnBuild>true</GeneratePackageOnBuild>
     </PropertyGroup>
